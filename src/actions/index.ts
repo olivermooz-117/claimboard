@@ -126,6 +126,18 @@ export const claimsCreate: ActionHandler<Env> = async ({ userId, params, tools, 
     }
   }
 
+  // If replying, validate the parent claim exists on this board.
+  if (parentId) {
+    const parent = await tools.get('claims', parentId)
+    if (!parent.success || !parent.data) {
+      return { success: false, error: 'Parent claim not found' }
+    }
+    const parentData = parent.data as { boardId?: string }
+    if (parentData.boardId !== boardId) {
+      return { success: false, error: 'Parent claim is not on this board' }
+    }
+  }
+
   const bodyDocId = crypto.randomUUID()
 
   const claim = await tools.create('claims', {
@@ -139,6 +151,11 @@ export const claimsCreate: ActionHandler<Env> = async ({ userId, params, tools, 
 
   if (!claim.success) return claim
 
+  const claimId = (claim.data as { id?: string })?.id
+  if (!claimId) {
+    return { success: false, error: 'Claim created without id' }
+  }
+
   // documents record links bodyDocId -> claimId for read-through Yjs gating.
   // Membership is resolved live on connect (see resolveDocsYjsRole), so no
   // denormalized editors/collaborators arrays to keep in sync.
@@ -146,7 +163,7 @@ export const claimsCreate: ActionHandler<Env> = async ({ userId, params, tools, 
     'documents',
     {
       ownerId: userId,
-      claimId: bodyDocId,
+      claimId,
     },
     bodyDocId,
   )
