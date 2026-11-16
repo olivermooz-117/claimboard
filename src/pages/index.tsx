@@ -5,10 +5,6 @@
  * with no DeepSpace providers: no auth session fetch, no records WebSocket.
  * That makes it cheap to serve and safe for logged-out / crawler traffic.
  *
- * Need live data or auth here? Move this file to src/pages/(app)/index.tsx
- * and it becomes a dynamic page. Conversely, any page you want to keep static
- * (marketing, docs, legal) belongs at this top level.
- *
  * Top-level pages are also prerendered to static HTML at build
  * (prerender.ts, via vite.config.ts) so crawlers read real content.
  * Keep them renderable without a browser: no window/document during render,
@@ -29,14 +25,15 @@ export default function Landing() {
         data-testid="static-landing"
         className="flex min-h-screen flex-col items-center justify-center px-6 text-center"
       >
-        <p className="mb-3 text-sm uppercase tracking-widest text-muted-foreground">{APP_NAME}</p>
+        <p className="mb-3 text-sm uppercase tracking-widest text-muted-foreground">
+          {APP_NAME}
+        </p>
         <h1 className="mb-4 max-w-2xl text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
-          A DeepSpace app with a static front door
+          ClaimBoard
         </h1>
         <p className="mb-8 max-w-md text-muted-foreground">
-          This landing page ships no auth call and no realtime connection — it's a
-          plain static page. The live app, with sign-in and synced data, lives
-          behind the link below.
+          A real-time collaborative argument map. Build shared claim trees,
+          co-edit bodies live, and use AI to find the strongest counter-arguments.
         </p>
         <Link
           to="/home"
