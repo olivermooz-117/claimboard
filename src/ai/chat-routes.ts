@@ -94,9 +94,15 @@ export function registerAiChatRoutes(
 
     const body = await c.req.json<{ title?: string }>().catch(() => ({}) as { title?: string })
     const stub = recordRoomStub(c.env)
-    const chat = await createChat(stub, auth.userId, {
-      title: body.title ?? 'New chat',
-    })
+    let chat
+    try {
+      chat = await createChat(stub, auth.userId, {
+        title: body.title ?? 'New chat',
+      })
+    } catch (err) {
+      console.error('[ai-chats] createChat failed:', err)
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
+    }
     return c.json({ chat })
   })
 
