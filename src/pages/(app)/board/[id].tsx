@@ -170,15 +170,18 @@ export default function BoardPage() {
   const { peers, connected: presenceConnected } = usePresenceRoom(presenceScope)
   const otherCount = presenceConnected ? peers.length : 0
 
+  const errorRef = useRef(error)
+  errorRef.current = error
+
   const loadClaims = useCallback(async () => {
     if (!boardId) return
     try {
       const cs = await listClaims(boardId)
       setClaims(cs)
     } catch (err) {
-      error('Failed to load claims', String(err))
+      errorRef.current('Failed to load claims', String(err))
     }
-  }, [boardId, error])
+  }, [boardId])
 
   const loadBoard = useCallback(async () => {
     if (!boardId) return
@@ -218,6 +221,9 @@ export default function BoardPage() {
   useEffect(() => {
     // Only poll once the board has loaded successfully. Stop on notFound or
     // load error so a broken board doesn't burn requests forever.
+    // Deps are [boardId, loadClaims] only — loading/notFound/boardError/board
+    // are read inside the body, not as deps, so claim fetches that update
+    // board/claims don't restart the interval.
     if (!boardId || loading || notFound || boardError || !board) {
       if (intervalRef.current !== null) {
         window.clearInterval(intervalRef.current)
@@ -255,7 +261,7 @@ export default function BoardPage() {
       stop()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [boardId, loading, notFound, boardError, board, loadClaims])
+  }, [boardId, loadClaims])
 
   async function handleAddClaim(e: React.FormEvent) {
     e.preventDefault()
