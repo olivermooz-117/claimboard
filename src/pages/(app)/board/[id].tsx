@@ -134,7 +134,7 @@ function ClaimRowItem({
 }
 
 export default function BoardPage() {
-  const { boardId } = useParams()
+  const { id: boardId } = useParams()
   const { isSignedIn, userId } = useAuthProfileReady({ requireUser: true })
   const navigate = useNavigate()
   const { error } = useToast()
@@ -176,31 +176,38 @@ export default function BoardPage() {
 
   const loadBoard = useCallback(async () => {
     if (!boardId) return
-    try {
-      setBoardError(null)
-      const result = await getBoard(boardId)
-      if (result.notFound) {
-        setNotFound(true)
-        setLoading(false)
-        return
-      }
-      if (!result.board) {
-        setBoardError('Failed to load board. Try again.')
-        setLoading(false)
-        return
-      }
-      setBoard(result.board)
-      setLoading(false)
-    } catch (err) {
+    setBoardError(null)
+    const result = await getBoard(boardId)
+    if (result.notFound) {
+      setNotFound(true)
+    } else if (!result.board) {
       setBoardError('Failed to load board. Try again.')
-      setLoading(false)
+    } else {
+      setBoard(result.board)
     }
   }, [boardId])
 
   useEffect(() => {
-    loadBoard()
-    loadClaims()
-  }, [loadBoard, loadClaims])
+    let cancelled = false
+    async function load() {
+      try {
+        setBoardError(null)
+        await Promise.all([loadBoard(), loadClaims()])
+      } catch (err) {
+        if (!cancelled) {
+          setBoardError('Failed to load board. Try again.')
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false)
+        }
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [boardId, loadBoard, loadClaims])
 
   useEffect(() => {
     // Only poll once the board has loaded successfully. Stop on notFound or
