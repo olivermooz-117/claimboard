@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthProfileReady } from 'deepspace'
 import { APP_NAME } from '../../constants'
@@ -36,6 +36,10 @@ export default function HomePage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    loadBoards()
+  }, [loadBoards])
 
   async function handleCreateBoard(e: React.FormEvent) {
     e.preventDefault()
@@ -124,7 +128,7 @@ export default function HomePage() {
                     <div className="flex items-center justify-between">
                       <div>
                         <h3 className="font-medium text-foreground group-hover:text-primary transition-colors">
-                          Board {b.boardId.slice(-6)}
+                          {b.topic || `Board ${b.boardId.slice(-6)}`}
                         </h3>
                         <Badge variant="secondary" className="text-xs mt-1">
                           {b.role}

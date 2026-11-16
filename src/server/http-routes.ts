@@ -429,11 +429,46 @@ export function registerBoardRoutes(app: Hono<AppContext>): void {
     if (!payload.success || !payload.data?.records) {
       return c.json({ boards: [] })
     }
-    return c.json({
-      boards: payload.data.records
-        .filter((r): r is { data: { boardId: string; role?: string } } => !!r.data?.boardId)
-        .map((r) => ({ boardId: r.data.boardId, role: r.data.role })),
-    })
+
+    const membershipRecords = payload.data.records
+
+    // Fetch board topics for each membership so cards can display them.
+    const boardIds = membershipRecords
+      .filter((r): r is { data: { boardId: string; role?: string } } => !!r.data?.boardId)
+      .map((r) => r.data.boardId)
+
+    const boards = await Promise.all(
+      boardIds.map(async (bid) => {
+        const bj = await stub.fetch(
+          new Request('https://internal/api/tools/execute', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-Id': c.env.OWNER_USER_ID,
+              'X-App-Action': 'true',
+            },
+            body: JSON.stringify({
+              tool: 'records.get',
+              params: { collection: 'boards', recordId: bid },
+            }),
+          }),
+        )
+        const bjson = (await bj.json()) as {
+          success?: boolean
+          data?: { record?: { data?: { topic?: string } } }
+        }
+        const role = membershipRecords.find(
+          (r) => r.data?.boardId === bid,
+        )?.data?.role
+        return {
+          boardId: bid,
+          role: role ?? 'viewer',
+          topic: bjson.success && bjson.data?.record?.data?.topic ? bjson.data.record.data.topic : '',
+        }
+      }),
+    )
+
+    return c.json({ boards })
   })
 
   // GET /api/boards/:id — membership-gated read, 404 for non-members (no existence leak)

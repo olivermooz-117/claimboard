@@ -31,7 +31,7 @@ export async function callAction<T = unknown>(
   return (await res.json()) as { success?: boolean; data?: T; error?: string }
 }
 
-export type BoardSummary = { boardId: string; role: string }
+export type BoardSummary = { boardId: string; role: string; topic: string }
 export type ClaimRow = {
   id: string
   boardId: string

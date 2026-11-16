@@ -147,6 +147,7 @@ export default function BoardPage() {
   } | null>(null)
   const [claims, setClaims] = useState<ClaimRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [notFound, setNotFound] = useState(false)
   const [newTitle, setNewTitle] = useState('')
   const [newStance, setNewStance] = useState<'support' | 'oppose' | 'neutral'>('support')
   const [replyTo, setReplyTo] = useState<string | null>(null)
@@ -173,9 +174,16 @@ export default function BoardPage() {
     if (!boardId) return
     try {
       const b = await getBoard(boardId)
+      if (!b) {
+        setNotFound(true)
+        setLoading(false)
+        return
+      }
       setBoard(b)
+      setLoading(false)
     } catch (err) {
       error('Failed to load board', String(err))
+      setLoading(false)
     }
   }, [boardId, error])
 
@@ -267,6 +275,22 @@ export default function BoardPage() {
   }
 
   if (!isSignedIn) return null
+  if (notFound) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen text-center px-6">
+        <h2 className="text-2xl font-bold text-foreground">Board not found</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          You don't have access to this board, or it doesn't exist.
+        </p>
+        <Button
+          onClick={() => navigate('/home')}
+          className="mt-4"
+        >
+          Back to home
+        </Button>
+      </div>
+    )
+  }
   if (loading || !board) {
     return (
       <div className="flex items-center justify-center min-h-screen text-muted-foreground">
