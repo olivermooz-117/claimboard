@@ -69,7 +69,10 @@ export const addMember: ActionHandler<Env> = async ({ userId, params, tools, env
 
   const records = (users.data as { records?: Array<{ id?: string }> }).records ?? []
   if (records.length === 0) {
-    return { success: false, error: 'User not found' }
+    return {
+      success: false,
+      error: 'User not found. They must sign in to ClaimBoard at least once before you can add them.',
+    }
   }
 
   const targetUserId = records[0].id
