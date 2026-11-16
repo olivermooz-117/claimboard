@@ -86,10 +86,16 @@ export const addMember: ActionHandler<Env> = async ({ userId, params, tools, env
   })
 
   if (existing.success && existing.data) {
-    const existingRecords = (existing.data as { records?: Array<{ recordId?: string }> })
+    const existingRecords = (existing.data as { records?: Array<{ recordId?: string; data?: { role?: string } }> })
       .records ?? []
     if (existingRecords.length > 0) {
-      return { success: false, error: 'User is already a member of this board' }
+      const existingId = existingRecords[0].recordId
+      if (!existingId) {
+        return { success: false, error: 'Existing membership missing id' }
+      }
+      const updated = await tools.update('memberships', existingId, { role })
+      if (!updated.success) return updated
+      return { success: true, data: updated.data }
     }
   }
 
