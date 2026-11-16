@@ -37,9 +37,11 @@ export default function HomePage() {
     }
   }
 
+  // Intentionally empty deps: loadBoards only calls stable setters and an
+  // imported function, so this runs once on mount.
   useEffect(() => {
     loadBoards()
-  }, [loadBoards])
+  }, [])
 
   async function handleCreateBoard(e: React.FormEvent) {
     e.preventDefault()

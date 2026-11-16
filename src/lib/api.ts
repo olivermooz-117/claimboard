@@ -54,12 +54,18 @@ export async function listBoards(): Promise<BoardSummary[]> {
   return json.boards ?? []
 }
 
-export async function getBoard(id: string): Promise<{ id: string; topic: string; rules: string; ownerId: string } | null> {
+export async function getBoard(id: string): Promise<{
+  board: { id: string; topic: string; rules: string; ownerId: string } | null
+  notFound: boolean
+}> {
   const res = await apiGet(`/api/boards/${id}`)
-  if (res.status === 404) return null
-  if (!res.ok) return null
+  if (res.status === 404) return { board: null, notFound: true }
+  if (!res.ok) return { board: null, notFound: false }
   const json = await res.json()
-  return json as { id: string; topic: string; rules: string; ownerId: string }
+  return {
+    board: json as { id: string; topic: string; rules: string; ownerId: string },
+    notFound: false,
+  }
 }
 
 export async function listClaims(boardId: string): Promise<ClaimRow[]> {

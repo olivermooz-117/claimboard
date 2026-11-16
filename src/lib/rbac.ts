@@ -6,7 +6,7 @@ const WRITE_ROLES = new Set(['owner', 'editor'])
 const recordStub = (env: Env): DurableObjectStub =>
   env.RECORD_ROOMS.get(env.RECORD_ROOMS.idFromName(`app:${env.DEEPSPACE_APP_ID}`))
 
-async function recordCall<T = unknown>(
+export async function recordCall<T = unknown>(
   env: Env,
   tool: string,
   params: Record<string, unknown>,

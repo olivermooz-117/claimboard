@@ -30,7 +30,7 @@ import {
 } from 'deepspace/worker'
 import type { ExpoAuthBridgeOptions, JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
 import { integrations } from '../integrations.js'
-import { requireBoardMembership, requireBoardWriteAccess, getBoardMembership } from '../lib/rbac.js'
+import { requireBoardMembership, requireBoardWriteAccess, getBoardMembership, recordCall } from '../lib/rbac.js'
 import type { AppContext, Env } from '../../worker.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
@@ -407,55 +407,33 @@ export function registerBoardRoutes(app: Hono<AppContext>): void {
     const auth = await resolveAuth(c.req.raw, c.env)
     if (!auth) return c.json({ error: 'Unauthorized' }, 401)
 
-    const stub = recordStub(c.env)
-    const json = await stub.fetch(
-      new Request('https://internal/api/tools/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': c.env.OWNER_USER_ID,
-          'X-App-Action': 'true',
-        },
-        body: JSON.stringify({
-          tool: 'records.query',
-          params: { collection: 'memberships', where: { userId: auth.userId }, limit: 100 },
-        }),
-      }),
+    const payload = await recordCall<{ records?: Array<{ data?: { boardId?: string; role?: string } }> }>(
+      c.env,
+      'records.query',
+      { collection: 'memberships', where: { userId: auth.userId }, limit: 100 },
     )
-    const payload = (await json.json()) as {
-      success?: boolean
-      data?: { records?: Array<{ data?: { boardId?: string; role?: string } }> }
-    }
     if (!payload.success || !payload.data?.records) {
       return c.json({ boards: [] })
     }
 
-    const membershipRecords = payload.data.records
+    const membershipRecords: Array<{ data?: { boardId?: string; role?: string } }> =
+      payload.data.records
 
     // Fetch board topics for each membership so cards can display them.
+    // Skip boards that no longer exist (deleted board, stale membership).
     const boardIds = membershipRecords
       .filter((r): r is { data: { boardId: string; role?: string } } => !!r.data?.boardId)
       .map((r) => r.data.boardId)
 
     const boards = await Promise.all(
-      boardIds.map(async (bid) => {
-        const bj = await stub.fetch(
-          new Request('https://internal/api/tools/execute', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-User-Id': c.env.OWNER_USER_ID,
-              'X-App-Action': 'true',
-            },
-            body: JSON.stringify({
-              tool: 'records.get',
-              params: { collection: 'boards', recordId: bid },
-            }),
-          }),
+      boardIds.map(async (bid: string) => {
+        const bjson = await recordCall<{ record?: { data?: { topic?: string } } }>(
+          c.env,
+          'records.get',
+          { collection: 'boards', recordId: bid },
         )
-        const bjson = (await bj.json()) as {
-          success?: boolean
-          data?: { record?: { data?: { topic?: string } } }
+        if (!bjson.success || !bjson.data?.record?.data?.topic) {
+          return null
         }
         const role = membershipRecords.find(
           (r) => r.data?.boardId === bid,
@@ -463,12 +441,12 @@ export function registerBoardRoutes(app: Hono<AppContext>): void {
         return {
           boardId: bid,
           role: role ?? 'viewer',
-          topic: bjson.success && bjson.data?.record?.data?.topic ? bjson.data.record.data.topic : '',
+          topic: bjson.data.record.data.topic,
         }
       }),
     )
 
-    return c.json({ boards })
+    return c.json({ boards: boards.filter(Boolean) })
   })
 
   // GET /api/boards/:id — membership-gated read, 404 for non-members (no existence leak)

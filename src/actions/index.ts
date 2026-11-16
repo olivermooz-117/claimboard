@@ -4,6 +4,7 @@ import {
   requireBoardMembership,
   requireBoardWriteAccess,
   getBoardMembership,
+  getClaimBoardId,
 } from '../lib/rbac'
 
 export const createBoard: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
@@ -128,12 +129,11 @@ export const claimsCreate: ActionHandler<Env> = async ({ userId, params, tools, 
 
   // If replying, validate the parent claim exists on this board.
   if (parentId) {
-    const parent = await tools.get('claims', parentId)
-    if (!parent.success || !parent.data) {
+    const parentBoardId = await getClaimBoardId(env, parentId)
+    if (!parentBoardId) {
       return { success: false, error: 'Parent claim not found' }
     }
-    const parentData = parent.data as { boardId?: string }
-    if (parentData.boardId !== boardId) {
+    if (parentBoardId !== boardId) {
       return { success: false, error: 'Parent claim is not on this board' }
     }
   }
@@ -159,7 +159,7 @@ export const claimsCreate: ActionHandler<Env> = async ({ userId, params, tools, 
   // documents record links bodyDocId -> claimId for read-through Yjs gating.
   // Membership is resolved live on connect (see resolveDocsYjsRole), so no
   // denormalized editors/collaborators arrays to keep in sync.
-  await tools.create(
+  const docCreated = await tools.create(
     'documents',
     {
       ownerId: userId,
@@ -167,6 +167,9 @@ export const claimsCreate: ActionHandler<Env> = async ({ userId, params, tools, 
     },
     bodyDocId,
   )
+  if (!docCreated.success) {
+    return { success: false, error: docCreated.error ?? 'Failed to create body document' }
+  }
 
   return { success: true, data: claim.data }
 }

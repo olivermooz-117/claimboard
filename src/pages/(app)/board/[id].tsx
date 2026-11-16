@@ -148,6 +148,7 @@ export default function BoardPage() {
   const [claims, setClaims] = useState<ClaimRow[]>([])
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
+  const [boardError, setBoardError] = useState<string | null>(null)
   const [newTitle, setNewTitle] = useState('')
   const [newStance, setNewStance] = useState<'support' | 'oppose' | 'neutral'>('support')
   const [replyTo, setReplyTo] = useState<string | null>(null)
@@ -173,19 +174,25 @@ export default function BoardPage() {
   const loadBoard = useCallback(async () => {
     if (!boardId) return
     try {
-      const b = await getBoard(boardId)
-      if (!b) {
+      setBoardError(null)
+      const result = await getBoard(boardId)
+      if (result.notFound) {
         setNotFound(true)
         setLoading(false)
         return
       }
-      setBoard(b)
+      if (!result.board) {
+        setBoardError('Failed to load board. Try again.')
+        setLoading(false)
+        return
+      }
+      setBoard(result.board)
       setLoading(false)
     } catch (err) {
-      error('Failed to load board', String(err))
+      setBoardError('Failed to load board. Try again.')
       setLoading(false)
     }
-  }, [boardId, error])
+  }, [boardId])
 
   useEffect(() => {
     loadBoard()
@@ -288,6 +295,20 @@ export default function BoardPage() {
         >
           Back to home
         </Button>
+      </div>
+    )
+  }
+  if (boardError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen text-center px-6">
+        <h2 className="text-2xl font-bold text-foreground">Board load failed</h2>
+        <p className="mt-2 text-sm text-muted-foreground">{boardError}</p>
+        <div className="mt-4 flex items-center gap-2">
+          <Button onClick={loadBoard}>Retry</Button>
+          <Button variant="outline" onClick={() => navigate('/home')}>
+            Back to home
+          </Button>
+        </div>
       </div>
     )
   }
