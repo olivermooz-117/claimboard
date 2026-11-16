@@ -30,10 +30,15 @@ import {
 } from 'deepspace/worker'
 import type { ExpoAuthBridgeOptions, JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
 import { integrations } from '../integrations.js'
+import { requireBoardMembership, requireBoardWriteAccess, getBoardMembership } from '../lib/rbac.js'
 import type { AppContext, Env } from '../../worker.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
   return { publicKey: env.AUTH_JWT_PUBLIC_KEY, issuer: env.AUTH_JWT_ISSUER }
+}
+
+function recordStub(env: Env): DurableObjectStub {
+  return env.RECORD_ROOMS.get(env.RECORD_ROOMS.idFromName(`app:${env.DEEPSPACE_APP_ID}`))
 }
 
 export async function resolveAuth(req: Request, env: Env): Promise<VerifyResult | null> {
@@ -396,13 +401,168 @@ function namesAFile(pathname: string): boolean {
   return last.includes('.')
 }
 
+export function registerBoardRoutes(app: Hono<AppContext>): void {
+  // GET /api/boards — list boards the caller is a member of
+  app.get('/api/boards', async (c) => {
+    const auth = await resolveAuth(c.req.raw, c.env)
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401)
+
+    const stub = recordStub(c.env)
+    const json = await stub.fetch(
+      new Request('https://internal/api/tools/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': c.env.OWNER_USER_ID,
+          'X-App-Action': 'true',
+        },
+        body: JSON.stringify({
+          tool: 'records.query',
+          params: { collection: 'memberships', where: { userId: auth.userId }, limit: 100 },
+        }),
+      }),
+    )
+    const payload = (await json.json()) as {
+      success?: boolean
+      data?: { records?: Array<{ data?: { boardId?: string; role?: string } }> }
+    }
+    if (!payload.success || !payload.data?.records) {
+      return c.json({ boards: [] })
+    }
+    return c.json({
+      boards: payload.data.records
+        .filter((r): r is { data: { boardId: string; role?: string } } => !!r.data?.boardId)
+        .map((r) => ({ boardId: r.data.boardId, role: r.data.role })),
+    })
+  })
+
+  // GET /api/boards/:id — membership-gated read, 404 for non-members (no existence leak)
+  app.get('/api/boards/:id', async (c) => {
+    const auth = await resolveAuth(c.req.raw, c.env)
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401)
+
+    const boardId = c.req.param('id')
+    const access = await requireBoardMembership(c.env, boardId, auth.userId)
+    if (access instanceof Response) return access
+
+    const stub = recordStub(c.env)
+    const json = await stub.fetch(
+      new Request('https://internal/api/tools/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': c.env.OWNER_USER_ID,
+          'X-App-Action': 'true',
+        },
+        body: JSON.stringify({
+          tool: 'records.get',
+          params: { collection: 'boards', recordId: boardId },
+        }),
+      }),
+    )
+    const payload = (await json.json()) as { success?: boolean; data?: { record?: { data?: unknown } } }
+    if (!payload.success || !payload.data?.record) return c.json({ error: 'Not found' }, 404)
+    return c.json(payload.data.record.data)
+  })
+
+  // GET /api/boards/:id/claims — claims for a board, 404 for non-members
+  app.get('/api/boards/:id/claims', async (c) => {
+    const auth = await resolveAuth(c.req.raw, c.env)
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401)
+
+    const boardId = c.req.param('id')
+    const access = await requireBoardMembership(c.env, boardId, auth.userId)
+    if (access instanceof Response) return access
+
+    const stub = recordStub(c.env)
+    const json = await stub.fetch(
+      new Request('https://internal/api/tools/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': c.env.OWNER_USER_ID,
+          'X-App-Action': 'true',
+        },
+        body: JSON.stringify({
+          tool: 'records.query',
+          params: { collection: 'claims', where: { boardId }, limit: 100 },
+        }),
+      }),
+    )
+    const payload = (await json.json()) as {
+      success?: boolean
+      data?: { records?: Array<{ data?: unknown; id?: string }> }
+    }
+    if (!payload.success) return c.json({ claims: [] })
+    return c.json({ claims: (payload.data?.records ?? []).map((r) => ({ id: r.id, ...(r.data ?? {}) })) })
+  })
+
+  // GET /api/claims/:id/evidence — evidence for a claim, 404 if not a member of the claim's board
+  app.get('/api/claims/:id/evidence', async (c) => {
+    const auth = await resolveAuth(c.req.raw, c.env)
+    if (!auth) return c.json({ error: 'Unauthorized' }, 401)
+
+    const claimId = c.req.param('id')
+
+    const stub = recordStub(c.env)
+    const claimJson = await stub.fetch(
+      new Request('https://internal/api/tools/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': c.env.OWNER_USER_ID,
+          'X-App-Action': 'true',
+        },
+        body: JSON.stringify({
+          tool: 'records.get',
+          params: { collection: 'claims', recordId: claimId },
+        }),
+      }),
+    )
+    const claimPayload = (await claimJson.json()) as {
+      success?: boolean
+      data?: { record?: { data?: { boardId?: string } } }
+    }
+    if (!claimPayload.success || !claimPayload.data?.record?.data) {
+      return c.json({ error: 'Not found' }, 404)
+    }
+
+    const boardId = claimPayload.data.record.data.boardId
+    if (!boardId) return c.json({ error: 'Not found' }, 404)
+    const access = await requireBoardMembership(c.env, boardId, auth.userId)
+    if (access instanceof Response) return access
+
+    const evJson = await stub.fetch(
+      new Request('https://internal/api/tools/execute', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-Id': c.env.OWNER_USER_ID,
+          'X-App-Action': 'true',
+        },
+        body: JSON.stringify({
+          tool: 'records.query',
+          params: { collection: 'evidence', where: { claimId }, limit: 100 },
+        }),
+      }),
+    )
+    const evPayload = (await evJson.json()) as {
+      success?: boolean
+      data?: { records?: Array<{ data?: unknown; id?: string }> }
+    }
+    if (!evPayload.success) return c.json({ evidence: [] })
+    return c.json({
+      evidence: (evPayload.data?.records ?? []).map((r) => ({ id: r.id, ...(r.data ?? {}) })),
+    })
+  })
+}
+
 /**
  * Register the client-route fallback last so it cannot shadow worker routes.
  * Deploys set `not_found_handling: "none"`, so a 404 from the binding is a
  * real miss and this worker makes the call the asset layer cannot.
  */
 export function registerStaticRoutes(app: Hono<AppContext>): void {
-  // The API guard is METHOD-AGNOSTIC and sits ahead of the GET fallback, so a
   // POST/PUT/DELETE to a mistyped or rolled-back API route gets the same JSON
   // 404 a GET does — Hono's default would answer it with plain text, which is
   // precisely the "text parsed as JSON" failure this guard exists to prevent.

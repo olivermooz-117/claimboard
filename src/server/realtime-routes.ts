@@ -11,6 +11,7 @@ import type { Context, Hono } from 'hono'
 import { authenticatedRoomRequest, resolveAppRole, verifyJwt } from 'deepspace/worker'
 import type { JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
 import type { AppContext, Env } from '../../worker.js'
+import { getClaimBoardId, getBoardMembership } from '../lib/rbac.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
   return { publicKey: env.AUTH_JWT_PUBLIC_KEY, issuer: env.AUTH_JWT_ISSUER }
@@ -45,28 +46,7 @@ function wsRoute(
 
 type DocsYjsRole = 'admin' | 'member' | 'viewer'
 
-interface DocumentRecordForAccess {
-  ownerId?: string
-  collaborators?: string
-  editors?: string
-}
-
-type DocumentAccessLookup =
-  | { kind: 'found'; doc: DocumentRecordForAccess }
-  | { kind: 'not-docs-room' }
-  | { kind: 'error' }
-
-function parseAccessList(raw: string | undefined): string[] {
-  if (!raw) return []
-  try {
-    const parsed = JSON.parse(raw)
-    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : []
-  } catch {
-    return []
-  }
-}
-
-async function getDocumentForAccess(env: Env, docId: string): Promise<DocumentAccessLookup> {
+async function getDocumentClaimId(env: Env, docId: string): Promise<string | null> {
   const stub = env.RECORD_ROOMS.get(env.RECORD_ROOMS.idFromName(`app:${env.DEEPSPACE_APP_ID}`))
   try {
     const res = await stub.fetch(
@@ -85,18 +65,14 @@ async function getDocumentForAccess(env: Env, docId: string): Promise<DocumentAc
     )
     const json = (await res.json()) as {
       success?: boolean
-      error?: string
-      data?: { record?: { data?: DocumentRecordForAccess } }
+      data?: { record?: { data?: { claimId?: string } } }
     }
-    if (json.success && json.data?.record?.data) {
-      return { kind: 'found', doc: json.data.record.data }
+    if (json.success && json.data?.record?.data?.claimId) {
+      return json.data.record.data.claimId
     }
-    if (json.error?.startsWith('Schema not registered for collection: documents')) {
-      return { kind: 'not-docs-room' }
-    }
-    return { kind: 'error' }
+    return null
   } catch {
-    return { kind: 'error' }
+    return null
   }
 }
 
@@ -105,18 +81,17 @@ async function resolveDocsYjsRole(
   docId: string,
   userId: string,
 ): Promise<DocsYjsRole | null> {
-  const lookup = await getDocumentForAccess(env, docId)
-  if (lookup.kind === 'not-docs-room') return 'member'
-  if (lookup.kind === 'error') return null
-  const { doc } = lookup
-  if (doc.ownerId === userId || userId === env.OWNER_USER_ID) return 'admin'
+  const claimId = await getDocumentClaimId(env, docId)
+  if (!claimId) return null
 
-  const editors = parseAccessList(doc.editors)
-  if (editors.includes(userId)) return 'member'
+  const boardId = await getClaimBoardId(env, claimId)
+  if (!boardId) return null
 
-  const collaborators = parseAccessList(doc.collaborators)
-  if (collaborators.includes(userId)) return 'viewer'
+  const membership = await getBoardMembership(env, boardId, userId)
+  if (!membership) return null
 
+  if (membership.role === 'owner' || membership.role === 'editor') return 'member'
+  if (membership.role === 'viewer') return 'viewer'
   return null
 }
 

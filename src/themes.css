@@ -44,3 +44,22 @@
   --color-shell: #fafafa;
   --color-shell-panel: #ffffff;
 }
+
+/* ClaimBoard semantic stance tokens — components reference these, not raw hex. */
+:root {
+  --claim-support: rgba(34, 197, 94, 0.12);
+  --claim-support-foreground: #166534;
+  --claim-support-border: rgba(34, 197, 94, 0.25);
+  --claim-oppose: rgba(239, 68, 68, 0.12);
+  --claim-oppose-foreground: #991b1b;
+  --claim-oppose-border: rgba(239, 68, 68, 0.25);
+  --claim-neutral: rgba(245, 158, 11, 0.12);
+  --claim-neutral-foreground: #713f12;
+  --claim-neutral-border: rgba(245, 158, 11, 0.25);
+  --claim-evidence: rgba(59, 130, 246, 0.12);
+  --claim-evidence-foreground: #1d4ed8;
+  --claim-evidence-border: rgba(59, 130, 246, 0.25);
+  --claim-question: rgba(168, 85, 247, 0.12);
+  --claim-question-foreground: #6b21a8;
+  --claim-question-border: rgba(168, 85, 247, 0.25);
+}
