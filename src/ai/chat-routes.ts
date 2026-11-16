@@ -88,7 +88,13 @@ export function registerAiChatRoutes(
 
   // Create a new chat row owned by the caller.
   app.post('/api/ai/chats', async (c) => {
-    const access = await requireAccess(c)
+    let access
+    try {
+      access = await requireAccess(c)
+    } catch (err) {
+      console.error('AI_CHAT_ERROR: requireAccess failed:', err)
+      return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
+    }
     if (access instanceof Response) return access
     const { auth } = access
 
@@ -100,7 +106,7 @@ export function registerAiChatRoutes(
         title: body.title ?? 'New chat',
       })
     } catch (err) {
-      console.error('[ai-chats] createChat failed:', err)
+      console.error('AI_CHAT_ERROR: createChat failed:', err)
       return c.json({ error: err instanceof Error ? err.message : String(err) }, 500)
     }
     return c.json({ chat })
