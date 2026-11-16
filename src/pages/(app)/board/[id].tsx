@@ -10,6 +10,7 @@ import {
   getBoard,
   listClaims,
   createClaim,
+  addMemberAction,
   type ClaimRow,
 } from '../../../lib/api'
 import {
@@ -154,6 +155,9 @@ export default function BoardPage() {
   const [replyTitle, setReplyTitle] = useState('')
   const [replyStance, setReplyStance] = useState<'support' | 'oppose' | 'neutral'>('oppose')
   const [creating, setCreating] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [addEmail, setAddEmail] = useState('')
+  const [addRole, setAddRole] = useState<'editor' | 'viewer'>('viewer')
   const intervalRef = useRef<number | null>(null)
 
   const presenceScope = boardId ? `board:${boardId}` : ''
@@ -263,6 +267,28 @@ export default function BoardPage() {
     }
   }
 
+  async function handleAddMember(e: React.FormEvent) {
+    e.preventDefault()
+    if (!boardId) return
+    setAdding(true)
+    try {
+      const result = await addMemberAction({
+        boardId,
+        email: addEmail,
+        role: addRole,
+      })
+      if (!result.success) {
+        error('Add member failed', result.error ?? 'unknown error')
+        return
+      }
+      setAddEmail('')
+    } catch (err) {
+      error('Add member failed', String(err))
+    } finally {
+      setAdding(false)
+    }
+  }
+
   async function handleAddReply(e: React.FormEvent) {
     e.preventDefault()
     if (!boardId || !replyTo) return
@@ -328,6 +354,7 @@ export default function BoardPage() {
   }
 
   const isOwner = board.ownerId === userId
+  const canManageMembers = isOwner
   const childClaims = claims.filter(
     (c) => c.parentId !== null && c.parentId !== undefined,
   )
@@ -482,6 +509,45 @@ export default function BoardPage() {
               </form>
             )}
           </section>
+
+          {canManageMembers && (
+            <section className="mt-6">
+              <form
+                onSubmit={handleAddMember}
+                className="rounded-lg border border-border bg-card p-6"
+              >
+                <h2 className="mb-4 text-lg font-semibold text-foreground">
+                  Add member
+                </h2>
+                <div className="space-y-3">
+                  <div>
+                    <Label>Email</Label>
+                    <Input
+                      value={addEmail}
+                      onChange={(e) => setAddEmail(e.target.value)}
+                      placeholder="member@example.com"
+                    />
+                  </div>
+                  <div>
+                    <Label>Role</Label>
+                    <select
+                      value={addRole}
+                      onChange={(e) =>
+                        setAddRole(e.target.value as 'editor' | 'viewer')
+                      }
+                      className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors"
+                    >
+                      <option value="editor">Editor (can write)</option>
+                      <option value="viewer">Viewer (read-only)</option>
+                    </select>
+                  </div>
+                  <Button type="submit" loading={adding}>
+                    Add member
+                  </Button>
+                </div>
+              </form>
+            </section>
+          )}
         </div>
       </div>
     </div>

@@ -5,7 +5,6 @@ import { APP_NAME } from '../../constants'
 import {
   listBoards,
   createBoardAction,
-  addMemberAction,
   type BoardSummary,
 } from '../../lib/api'
 import { Button, Input, Label, Badge, useToast } from '@/components/ui'
@@ -19,11 +18,7 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false)
   const [createTopic, setCreateTopic] = useState('')
   const [createRules, setCreateRules] = useState('')
-  const [addEmail, setAddEmail] = useState('')
-  const [addBoardId, setAddBoardId] = useState('')
-  const [addRole, setAddRole] = useState<'editor' | 'viewer'>('viewer')
   const [creating, setCreating] = useState(false)
-  const [adding, setAdding] = useState(false)
 
   async function loadBoards() {
     setLoading(true)
@@ -57,33 +52,16 @@ export default function HomePage() {
       }
       setCreateTopic('')
       setCreateRules('')
-      await loadBoards()
+      const newBoardId = (result.data as { id?: string })?.id
+      if (newBoardId) {
+        navigate(`/board/${newBoardId}`)
+      } else {
+        await loadBoards()
+      }
     } catch (err) {
       error('Create failed', String(err))
     } finally {
       setCreating(false)
-    }
-  }
-
-  async function handleAddMember(e: React.FormEvent) {
-    e.preventDefault()
-    setAdding(true)
-    try {
-      const result = await addMemberAction({
-        boardId: addBoardId,
-        email: addEmail,
-        role: addRole,
-      })
-      if (!result.success) {
-        error('Add member failed', result.error ?? 'unknown error')
-        return
-      }
-      setAddEmail('')
-      await loadBoards()
-    } catch (err) {
-      error('Add member failed', String(err))
-    } finally {
-      setAdding(false)
     }
   }
 
@@ -170,49 +148,6 @@ export default function HomePage() {
                 </div>
                 <Button type="submit" loading={creating}>
                   Create board
-                </Button>
-              </div>
-            </form>
-
-            <form
-              onSubmit={handleAddMember}
-              className="rounded-lg border border-border bg-card p-6"
-            >
-              <h2 className="mb-4 text-lg font-semibold text-foreground">
-                Add member
-              </h2>
-              <div className="space-y-3">
-                <div>
-                  <Label>Board ID</Label>
-                  <Input
-                    value={addBoardId}
-                    onChange={(e) => setAddBoardId(e.target.value)}
-                    placeholder="Paste board ID"
-                  />
-                </div>
-                <div>
-                  <Label>Email</Label>
-                  <Input
-                    value={addEmail}
-                    onChange={(e) => setAddEmail(e.target.value)}
-                    placeholder="member@example.com"
-                  />
-                </div>
-                <div>
-                  <Label>Role</Label>
-                  <select
-                    value={addRole}
-                    onChange={(e) =>
-                      setAddRole(e.target.value as 'editor' | 'viewer')
-                    }
-                    className="flex h-10 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors"
-                  >
-                    <option value="editor">Editor (can write)</option>
-                    <option value="viewer">Viewer (read-only)</option>
-                  </select>
-                </div>
-                <Button type="submit" loading={adding}>
-                  Add member
                 </Button>
               </div>
             </form>

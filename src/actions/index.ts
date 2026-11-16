@@ -21,7 +21,7 @@ export const createBoard: ActionHandler<Env> = async ({ userId, params, tools, e
 
   if (!board.success) return board
 
-  const boardId = (board.data as { id?: string })?.id
+  const boardId = board.data.recordId
   if (!boardId) {
     return { success: false, error: 'Board created without id' }
   }
@@ -34,7 +34,7 @@ export const createBoard: ActionHandler<Env> = async ({ userId, params, tools, e
 
   if (!membership.success) return membership
 
-  return { success: true, data: { board: board.data, membership: membership.data } }
+  return { success: true, data: { id: boardId, board: board.data, membership: membership.data } }
 }
 
 export const addMember: ActionHandler<Env> = async ({ userId, params, tools, env }) => {
@@ -151,7 +151,7 @@ export const claimsCreate: ActionHandler<Env> = async ({ userId, params, tools, 
 
   if (!claim.success) return claim
 
-  const claimId = (claim.data as { id?: string })?.id
+  const claimId = claim.data.recordId
   if (!claimId) {
     return { success: false, error: 'Claim created without id' }
   }
