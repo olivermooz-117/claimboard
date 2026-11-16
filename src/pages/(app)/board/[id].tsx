@@ -116,7 +116,6 @@ function ClaimRowItem({
               variant="ghost"
               size="sm"
               onClick={() => setEditingBody(!editingBody)}
-              disabled={claim.authorId !== userId}
             >
               {editingBody ? 'Hide body' : 'Edit body'}
             </Button>
@@ -200,7 +199,15 @@ export default function BoardPage() {
   }, [loadBoard, loadClaims])
 
   useEffect(() => {
-    if (!boardId) return
+    // Only poll once the board has loaded successfully. Stop on notFound or
+    // load error so a broken board doesn't burn requests forever.
+    if (!boardId || loading || notFound || boardError || !board) {
+      if (intervalRef.current !== null) {
+        window.clearInterval(intervalRef.current)
+        intervalRef.current = null
+      }
+      return
+    }
 
     let stopped = false
     const tick = () => {
@@ -231,7 +238,7 @@ export default function BoardPage() {
       stop()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [boardId, loadClaims])
+  }, [boardId, loading, notFound, boardError, board, loadClaims])
 
   async function handleAddClaim(e: React.FormEvent) {
     e.preventDefault()

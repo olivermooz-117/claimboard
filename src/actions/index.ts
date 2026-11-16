@@ -168,7 +168,13 @@ export const claimsCreate: ActionHandler<Env> = async ({ userId, params, tools, 
     bodyDocId,
   )
   if (!docCreated.success) {
-    return { success: false, error: docCreated.error ?? 'Failed to create body document' }
+    const removed = await tools.remove('claims', claimId)
+    return {
+      success: false,
+      error: removed.success
+        ? docCreated.error ?? 'Failed to create body document'
+        : `${docCreated.error ?? 'Failed to create body document'}; claim rollback also failed`,
+    }
   }
 
   return { success: true, data: claim.data }
