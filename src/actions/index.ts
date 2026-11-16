@@ -67,7 +67,7 @@ export const addMember: ActionHandler<Env> = async ({ userId, params, tools, env
     return { success: false, error: 'Failed to look up user' }
   }
 
-  const records = (users.data as { records?: Array<{ id?: string }> }).records ?? []
+  const records = (users.data as { records?: Array<{ recordId?: string }> }).records ?? []
   if (records.length === 0) {
     return {
       success: false,
@@ -75,7 +75,7 @@ export const addMember: ActionHandler<Env> = async ({ userId, params, tools, env
     }
   }
 
-  const targetUserId = records[0].id
+  const targetUserId = records[0].recordId
   if (!targetUserId) {
     return { success: false, error: 'User record missing id' }
   }
@@ -86,7 +86,7 @@ export const addMember: ActionHandler<Env> = async ({ userId, params, tools, env
   })
 
   if (existing.success && existing.data) {
-    const existingRecords = (existing.data as { records?: Array<{ id?: string }> })
+    const existingRecords = (existing.data as { records?: Array<{ recordId?: string }> })
       .records ?? []
     if (existingRecords.length > 0) {
       return { success: false, error: 'User is already a member of this board' }
