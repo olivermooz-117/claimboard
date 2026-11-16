@@ -103,3 +103,62 @@ export async function addMemberAction(params: {
 }): Promise<{ success?: boolean; data?: unknown; error?: string }> {
   return callAction('boards.add-member', params)
 }
+
+export type AiMessage = {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  createdAt?: string
+}
+
+export async function createAiChat(title?: string): Promise<{ chat?: { id: string; title: string }; error?: string }> {
+  const res = await apiPost('/api/ai/chats', { title })
+  const json = await res.json() as { chat?: { id: string; title: string }; error?: string }
+  if (!res.ok) return { error: json.error ?? 'Failed to create chat' }
+  return { chat: json.chat }
+}
+
+export async function sendAiMessage(params: {
+  chatId: string
+  userMessageId: string
+  content: string
+  modelId?: string
+}): Promise<{ text?: string; error?: string }> {
+  const token = await getAuthToken()
+  const res = await fetch('/api/ai/chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`,
+    },
+    body: JSON.stringify(params),
+  })
+  if (!res.ok) {
+    const json = await res.json() as { error?: string }
+    return { error: json.error ?? 'AI request failed' }
+  }
+  if (!res.body) return { error: 'No response body' }
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let text = ''
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const parts = buffer.split('\n\n')
+    buffer = parts.pop() ?? ''
+    for (const part of parts) {
+      const line = part.split('\n').find((l) => l.startsWith('data: '))
+      if (line) {
+        try {
+          const parsed = JSON.parse(line.slice(6))
+          if (parsed.type === 'text' && typeof parsed.text === 'string') {
+            text += parsed.text
+          }
+        } catch {}
+      }
+    }
+  }
+  return { text }
+}

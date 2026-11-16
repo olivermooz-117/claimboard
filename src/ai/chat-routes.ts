@@ -257,8 +257,39 @@ export function registerAiChatRoutes(
     // mid-stream. The local assistant routes use the same executor and
     // context, and streamDeepSpaceAgent caps each tool result for the model,
     // keeping both surfaces' tool behavior identical.
+    const executor = createUserToolExecutor(c.env, auth.userId, c.req.raw.signal, { room: access.room })
+
+    // Wrapper that handles the read-only claims_for_board custom tool by
+    // querying claims for the board, capped at 25. All other tools fall
+    // through to the built-in executor.
+    const customExecutor = async (toolName: string, params: Record<string, unknown>) => {
+      if (toolName === 'claims_for_board') {
+        const { boardId } = params as { boardId?: string }
+        if (!boardId || typeof boardId !== 'string') {
+          return { success: false, error: 'boardId is required' }
+        }
+        const stub = recordRoomStub(c.env)
+        const res = await stub.fetch(
+          new Request('https://internal/api/tools/execute', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-Id': c.env.OWNER_USER_ID,
+              'X-App-Action': 'true',
+            },
+            body: JSON.stringify({
+              tool: 'records.query',
+              params: { collection: 'claims', where: { boardId }, limit: 25 },
+            }),
+          }),
+        )
+        return await res.json()
+      }
+      return executor(toolName, params)
+    }
+
     const tools = buildTools(
-      createUserToolExecutor(c.env, auth.userId, c.req.raw.signal, { room: access.room }),
+      customExecutor,
       { env: c.env, userId: auth.userId, request: c.req.raw },
     )
 

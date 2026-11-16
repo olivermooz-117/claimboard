@@ -86,13 +86,30 @@ export function buildTools(executor: ToolExecutor): ToolSet {
     tools[safeName] = tool({
       description: def.description,
       inputSchema: buildInputSchema(def),
-      // Apply assistant-only param defaults (e.g. records.query page size) here
-      // in the AI tool layer, so internal record readers that hit the tools
-      // dispatch directly stay unbounded.
       execute: async (params: Record<string, unknown>) =>
         executor(def.name, applyAiToolDefaults(def.name, params)),
     })
   }
+
+  // Read-only custom tool: list claims for a board, capped at 25.
+  // Lets the assistant reference real claim IDs when suggesting
+  // counter-arguments. No write capability.
+  tools.claims_for_board = tool({
+    description: 'List claims for a board, capped at 25 results. Returns claim IDs, titles, stances, and body doc IDs so the assistant can reference real claim IDs when suggesting counter-arguments.',
+    inputSchema: jsonSchema<{ boardId: string }>(
+      z.toJSONSchema(z.object({ boardId: z.string() })) as Parameters<typeof jsonSchema>[0],
+      {
+        validate: async (value) => {
+          const result = await z.object({ boardId: z.string() }).safeParseAsync(value)
+          return result.success
+            ? { success: true, value: result.data }
+            : { success: false, error: result.error }
+        },
+      },
+    ),
+    execute: async (params: Record<string, unknown>) =>
+      executor('claims_for_board', params),
+  })
 
   return tools
 }
