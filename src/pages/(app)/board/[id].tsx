@@ -11,8 +11,6 @@ import {
   listClaims,
   createClaim,
   addMemberAction,
-  createAiChat,
-  sendAiMessage,
   type ClaimRow,
 } from '../../../lib/api'
 import {
@@ -160,10 +158,6 @@ export default function BoardPage() {
   const [adding, setAdding] = useState(false)
   const [addEmail, setAddEmail] = useState('')
   const [addRole, setAddRole] = useState<'editor' | 'viewer'>('viewer')
-  const [aiOpen, setAiOpen] = useState(false)
-  const [aiMessages, setAiMessages] = useState<{ role: string; content: string }[]>([])
-  const [aiLoading, setAiLoading] = useState(false)
-  const [aiChatId, setAiChatId] = useState<string | null>(null)
   const intervalRef = useRef<number | null>(null)
 
   const presenceScope = boardId ? `board:${boardId}` : ''
@@ -171,7 +165,10 @@ export default function BoardPage() {
   const otherCount = presenceConnected ? peers.length : 0
 
   const errorRef = useRef(error)
-  errorRef.current = error
+
+  useEffect(() => {
+    errorRef.current = error
+  }, [error])
 
   const loadClaims = useCallback(async () => {
     if (!boardId) return
@@ -305,44 +302,6 @@ export default function BoardPage() {
       error('Add member failed', String(err))
     } finally {
       setAdding(false)
-    }
-  }
-
-  async function ensureAiChat() {
-    if (aiChatId) return aiChatId
-    const result = await createAiChat(`Board ${boardId?.slice(-6)}`)
-    if (result.chat) {
-      setAiChatId(result.chat.id)
-      return result.chat.id
-    }
-    error('AI chat failed', result.error ?? 'unknown error')
-    return null
-  }
-
-  async function handleSuggestCounterArguments() {
-    if (!boardId) return
-    const chatId = await ensureAiChat()
-    if (!chatId) return
-    setAiLoading(true)
-    try {
-      const userMessageId = `msg-${Date.now()}-${crypto.randomUUID()}`
-      const claimList = claims
-        .map((c) => `- Claim ${c.id.slice(-6)}: "${c.title}" (stance: ${c.stance}, bodyDocId: ${c.bodyDocId ?? 'none'})`)
-        .join('\n')
-      const content = `Here are the claims on this board:\n${claimList}\n\nSuggest counter-arguments for each claim. Reference claim IDs in your suggestions.`
-      const result = await sendAiMessage({ chatId, userMessageId, content })
-      if (result.error) {
-        error('AI error', result.error)
-        return
-      }
-      if (result.text) {
-        const text = result.text
-        setAiMessages((prev) => [...prev, { role: 'assistant', content: text }])
-      }
-    } catch (err) {
-      error('AI error', String(err))
-    } finally {
-      setAiLoading(false)
     }
   }
 
