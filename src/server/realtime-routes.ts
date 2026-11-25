@@ -11,7 +11,7 @@ import type { Context, Hono } from 'hono'
 import { authenticatedRoomRequest, resolveAppRole, verifyJwt } from 'deepspace/worker'
 import type { JwtVerifierConfig, VerifyResult } from 'deepspace/worker'
 import type { AppContext, Env } from '../../worker.js'
-import { getClaimBoardId, getBoardMembership } from '../lib/rbac.js'
+import { getClaimBoardId, getBoardMembership, requireBoardMembership } from '../lib/rbac.js'
 
 function jwtConfig(env: Env): JwtVerifierConfig {
   return { publicKey: env.AUTH_JWT_PUBLIC_KEY, issuer: env.AUTH_JWT_ISSUER }
@@ -20,6 +20,7 @@ function jwtConfig(env: Env): JwtVerifierConfig {
 function wsRoute(
   doNamespace: (env: Env) => DurableObjectNamespace,
   extraIdentity?: (auth: VerifyResult, env: Env) => { role?: string } | Promise<{ role?: string }>,
+  requireAuth = false,
 ) {
   return async (c: Context<AppContext>) => {
     const id = c.req.param('roomId') ?? c.req.param('docId') ?? c.req.param('scopeId')
@@ -32,6 +33,7 @@ function wsRoute(
       auth = (await verifyJwt(jwtConfig(c.env), token)).result
       if (!auth) return new Response('Unauthorized', { status: 401 })
     }
+    if (requireAuth && !auth) return new Response('Unauthorized', { status: 401 })
     const roomRequest = authenticatedRoomRequest(
       c.req.raw,
       auth,
@@ -96,9 +98,11 @@ async function resolveDocsYjsRole(
 }
 
 export function registerRealtimeRoutes(app: Hono<AppContext>): void {
+  // Record rooms expose every collection record to subscribers, so they require
+  // a verified identity — anonymous sockets get nothing.
   app.get(
     '/ws/:roomId',
-    wsRoute((env) => env.RECORD_ROOMS),
+    wsRoute((env) => env.RECORD_ROOMS, undefined, true),
   )
 
   app.get('/ws/yjs/:docId', async (c) => {
@@ -125,10 +129,25 @@ export function registerRealtimeRoutes(app: Hono<AppContext>): void {
     ),
   )
 
-  app.get(
-    '/ws/presence/:scopeId',
-    wsRoute((env) => env.PRESENCE_ROOMS),
-  )
+  app.get('/ws/presence/:scopeId', async (c) => {
+    const scopeId = c.req.param('scopeId')
+    if (!scopeId) return new Response('Not found', { status: 404 })
+    // Only board-scoped presence rooms exist; anything else is a miss.
+    if (!scopeId.startsWith('board:')) return new Response('Not found', { status: 404 })
+    const boardId = scopeId.slice('board:'.length)
+    const url = new URL(c.req.url)
+    const token = url.searchParams.get('token')
+    const auth = token ? (await verifyJwt(jwtConfig(c.env), token)).result : null
+    if (!auth) return new Response('Unauthorized', { status: 401 })
+
+    const membership = await requireBoardMembership(c.env, boardId, auth.userId)
+    if (membership instanceof Response) return membership
+
+    const roomRequest = authenticatedRoomRequest(c.req.raw, auth)
+
+    const stub = c.env.PRESENCE_ROOMS.get(c.env.PRESENCE_ROOMS.idFromName(scopeId))
+    return stub.fetch(roomRequest)
+  })
 
   app.get(
     '/ws/cron/:roomId',

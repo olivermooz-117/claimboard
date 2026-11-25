@@ -8,8 +8,8 @@ export const membershipsSchema: CollectionSchema = {
     { name: 'role', storage: 'text', interpretation: 'plain', required: true },
   ],
   permissions: {
-    viewer: { read: true, create: false, update: false, delete: false },
-    member: { read: true, create: true, update: 'own', delete: 'own' },
+    viewer: { read: false, create: false, update: false, delete: false },
+    member: { read: false, create: false, update: false, delete: false },
     admin: { read: true, create: true, update: true, delete: true },
   },
 }

@@ -35,6 +35,7 @@ import {
 } from 'deepspace/worker'
 import type { AgentToolAccessResult, AgentToolRouteOptions, ChatTurn } from 'deepspace/worker'
 import { schemas } from '../schemas.js'
+import { requireBoardMembership } from '../lib/rbac.js'
 import { buildSystemPrompt } from './tools.js'
 // Type-only — TypeScript strips these at runtime, so no circular import
 // with worker.ts (which imports `registerAiChatRoutes` from this file).
@@ -279,6 +280,10 @@ export function registerAiChatRoutes(
         const { boardId } = params as { boardId?: string }
         if (!boardId || typeof boardId !== 'string') {
           return { success: false, error: 'boardId is required' }
+        }
+        const membership = await requireBoardMembership(c.env, boardId, auth.userId)
+        if (membership instanceof Response) {
+          return { success: false, error: 'Forbidden' }
         }
         const stub = recordRoomStub(c.env)
         const res = await stub.fetch(

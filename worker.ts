@@ -139,12 +139,10 @@ registerAuthAndIntegrationRoutes(app)
 registerBoardRoutes(app)
 registerRealtimeRoutes(app)
 registerActionRoutes(app, resolveAuth)
-// Every scaffold exposes selected tools through HTTP, MCP and browser tools.
-// Only copilot owns the collections needed for the in-app chat UI.
-registerAgent(app, {
-  tools: buildTools,
-  inApp: schemas.some((schema) => schema.name === AI_CHATS_SCHEMA.name),
-})
+// AI endpoints are registered but intentionally disabled: the assistant UI is
+// hidden and record write tools are not yet safe for assistant use, so expose
+// no AI routes until the feature works.
+registerAgent(app, { tools: buildTools, inApp: false, local: false })
 registerPlatformProxyRoutes(app)
 registerStaticRoutes(app)
 

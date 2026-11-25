@@ -41,6 +41,43 @@ function recordStub(env: Env): DurableObjectStub {
   return env.RECORD_ROOMS.get(env.RECORD_ROOMS.idFromName(`app:${env.DEEPSPACE_APP_ID}`))
 }
 
+/**
+ * Page through every record matching a records.query filter using the tool's
+ * offset/nextOffset pagination (records.query supports `offset` and returns
+ * `nextOffset` when more records match). Returns all records across pages.
+ * Caps at 100 pages to avoid an unbounded loop.
+ */
+async function queryAll<T = unknown>(
+  env: Env,
+  params: Record<string, unknown>,
+): Promise<{
+  success: boolean
+  data?: Array<{ data?: unknown; id?: string }>
+  error?: string
+}> {
+  const records: Array<{ data?: unknown; id?: string }> = []
+  let offset: number | undefined = 0
+  let ok = true
+  let error: string | undefined
+  for (let page = 0; page < 100; page++) {
+    const payload: { success?: boolean; data?: { records?: unknown[]; nextOffset?: number }; error?: string } =
+      await recordCall<{ records?: unknown[]; nextOffset?: number }>(
+      env,
+      'records.query',
+      { ...params, ...(offset !== undefined ? { offset } : {}) },
+    )
+    if (!payload.success) {
+      ok = false
+      error = payload.error
+      break
+    }
+    records.push(...((payload.data?.records ?? []) as Array<{ data?: unknown; id?: string }>))
+    if (payload.data?.nextOffset === undefined) break
+    offset = payload.data.nextOffset
+  }
+  return { success: ok, data: records, error }
+}
+
 export async function resolveAuth(req: Request, env: Env): Promise<VerifyResult | null> {
   const header = req.headers.get('Authorization')
   const token = header?.startsWith('Bearer ') ? header.slice(7) : null
@@ -407,17 +444,16 @@ export function registerBoardRoutes(app: Hono<AppContext>): void {
     const auth = await resolveAuth(c.req.raw, c.env)
     if (!auth) return c.json({ error: 'Unauthorized' }, 401)
 
-    const payload = await recordCall<{ records?: Array<{ data?: { boardId?: string; role?: string } }> }>(
-      c.env,
-      'records.query',
-      { collection: 'memberships', where: { userId: auth.userId }, limit: 100 },
-    )
-    if (!payload.success || !payload.data?.records) {
+    const payload = await queryAll(c.env, {
+      collection: 'memberships',
+      where: { userId: auth.userId },
+    })
+    if (!payload.success || !payload.data) {
       return c.json({ boards: [] })
     }
 
     const membershipRecords: Array<{ data?: { boardId?: string; role?: string } }> =
-      payload.data.records
+      payload.data as Array<{ data?: { boardId?: string; role?: string } }>
 
     // Fetch board topics for each membership so cards can display them.
     // Skip boards that no longer exist (deleted board, stale membership).
@@ -487,27 +523,14 @@ export function registerBoardRoutes(app: Hono<AppContext>): void {
     const access = await requireBoardMembership(c.env, boardId, auth.userId)
     if (access instanceof Response) return access
 
-    const stub = recordStub(c.env)
-    const json = await stub.fetch(
-      new Request('https://internal/api/tools/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': c.env.OWNER_USER_ID,
-          'X-App-Action': 'true',
-        },
-        body: JSON.stringify({
-          tool: 'records.query',
-          params: { collection: 'claims', where: { boardId }, limit: 100 },
-        }),
-      }),
-    )
-    const payload = (await json.json()) as {
-      success?: boolean
-      data?: { records?: Array<{ data?: unknown; id?: string }> }
-    }
-    if (!payload.success) return c.json({ claims: [] })
-    return c.json({ claims: (payload.data?.records ?? []).map((r) => ({ id: r.id, ...(r.data ?? {}) })) })
+    const claimsPayload = await queryAll(c.env, {
+      collection: 'claims',
+      where: { boardId },
+    })
+    if (!claimsPayload.success) return c.json({ claims: [] })
+    return c.json({
+      claims: (claimsPayload.data ?? []).map((r) => ({ id: r.id, ...(r.data ?? {}) })),
+    })
   })
 
   // GET /api/claims/:id/evidence — evidence for a claim, 404 if not a member of the claim's board
@@ -545,27 +568,13 @@ export function registerBoardRoutes(app: Hono<AppContext>): void {
     const access = await requireBoardMembership(c.env, boardId, auth.userId)
     if (access instanceof Response) return access
 
-    const evJson = await stub.fetch(
-      new Request('https://internal/api/tools/execute', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-Id': c.env.OWNER_USER_ID,
-          'X-App-Action': 'true',
-        },
-        body: JSON.stringify({
-          tool: 'records.query',
-          params: { collection: 'evidence', where: { claimId }, limit: 100 },
-        }),
-      }),
-    )
-    const evPayload = (await evJson.json()) as {
-      success?: boolean
-      data?: { records?: Array<{ data?: unknown; id?: string }> }
-    }
+    const evPayload = await queryAll(c.env, {
+      collection: 'evidence',
+      where: { claimId },
+    })
     if (!evPayload.success) return c.json({ evidence: [] })
     return c.json({
-      evidence: (evPayload.data?.records ?? []).map((r) => ({ id: r.id, ...(r.data ?? {}) })),
+      evidence: (evPayload.data ?? []).map((r) => ({ id: r.id, ...(r.data ?? {}) })),
     })
   })
 }

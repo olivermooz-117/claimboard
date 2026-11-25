@@ -12,6 +12,12 @@ export const createBoard: ActionHandler<Env> = async ({ userId, params, tools, e
   if (typeof topic !== 'string' || topic.trim() === '') {
     return { success: false, error: 'topic is required' }
   }
+  if (topic.trim().length > 200) {
+    return { success: false, error: 'topic must be 200 characters or fewer' }
+  }
+  if (rules !== undefined && (typeof rules !== 'string' || rules.length > 2000)) {
+    return { success: false, error: 'rules must be a string of 2000 characters or fewer' }
+  }
 
   const board = await tools.create('boards', {
     topic: topic.trim(),
@@ -54,12 +60,9 @@ export const addMember: ActionHandler<Env> = async ({ userId, params, tools, env
     return { success: false, error: 'role must be editor or viewer' }
   }
 
-  const access = await requireBoardWriteAccess(env, boardId, userId)
-  if (access instanceof Response) {
-    return {
-      success: false,
-      error: access.status === 403 ? 'Forbidden' : 'Not found',
-    }
+  const callerMembership = await getBoardMembership(env, boardId, userId)
+  if (!callerMembership || callerMembership.role !== 'owner') {
+    return { success: false, error: 'Forbidden' }
   }
 
   const users = await tools.query('users', { where: { email }, limit: 1 })
@@ -71,7 +74,7 @@ export const addMember: ActionHandler<Env> = async ({ userId, params, tools, env
   if (records.length === 0) {
     return {
       success: false,
-      error: 'User not found. They must sign in to ClaimBoard at least once before you can add them.',
+      error: 'Could not add that user',
     }
   }
 
@@ -89,6 +92,9 @@ export const addMember: ActionHandler<Env> = async ({ userId, params, tools, env
     const existingRecords = (existing.data as { records?: Array<{ recordId?: string; data?: { role?: string } }> })
       .records ?? []
     if (existingRecords.length > 0) {
+      if (existingRecords[0].data?.role === 'owner') {
+        return { success: false, error: 'The board owner cannot be demoted' }
+      }
       const existingId = existingRecords[0].recordId
       if (!existingId) {
         return { success: false, error: 'Existing membership missing id' }
@@ -126,6 +132,9 @@ export const claimsCreate: ActionHandler<Env> = async ({ userId, params, tools, 
   }
   if (typeof title !== 'string' || title.trim() === '') {
     return { success: false, error: 'title is required' }
+  }
+  if (title.trim().length > 300) {
+    return { success: false, error: 'title must be 300 characters or fewer' }
   }
 
   const access = await requireBoardWriteAccess(env, boardId, userId)

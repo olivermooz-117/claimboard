@@ -13,6 +13,7 @@ import {
   addMemberAction,
   type ClaimRow,
 } from '../../../lib/api'
+import { buildClaimTree, type ClaimTreeNode } from '../../../lib/claim-tree'
 import {
   Button,
   Input,
@@ -73,20 +74,17 @@ function ClaimRowItem({
   claim,
   depth,
   onReply,
-  userId,
 }: {
   claim: ClaimRow
   depth: number
   onReply: (parentId: string) => void
-  userId: string | null
 }) {
   const [editingBody, setEditingBody] = useState(false)
 
   return (
     <div
-      key={claim.id}
       className="rounded-lg border border-border bg-card p-3 mb-2"
-      style={{ paddingLeft: 16 + depth * 18 }}
+      style={{ paddingLeft: 16 + Math.min(depth, 5) * 18 }}
     >
       <div className="flex items-start gap-3">
         <div className="flex items-center gap-2">
@@ -133,6 +131,34 @@ function ClaimRowItem({
   )
 }
 
+function ClaimRowNode({
+  node,
+  depth,
+  onReply,
+}: {
+  node: ClaimTreeNode
+  depth: number
+  onReply: (parentId: string) => void
+}) {
+  return (
+    <div key={node.claim.id}>
+      <ClaimRowItem
+        claim={node.claim}
+        depth={depth}
+        onReply={onReply}
+      />
+      {node.children.map((child) => (
+        <ClaimRowNode
+          key={child.claim.id}
+          node={child}
+          depth={depth + 1}
+          onReply={onReply}
+        />
+      ))}
+    </div>
+  )
+}
+
 export default function BoardPage() {
   const { id: boardId } = useParams()
   const { isSignedIn, userId } = useAuthProfileReady({ requireUser: true })
@@ -158,7 +184,6 @@ export default function BoardPage() {
   const [adding, setAdding] = useState(false)
   const [addEmail, setAddEmail] = useState('')
   const [addRole, setAddRole] = useState<'editor' | 'viewer'>('viewer')
-  const intervalRef = useRef<number | null>(null)
 
   const presenceScope = boardId ? `board:${boardId}` : ''
   const { peers, connected: presenceConnected } = usePresenceRoom(presenceScope)
@@ -215,50 +240,52 @@ export default function BoardPage() {
     }
   }, [boardId, loadBoard, loadClaims])
 
-  useEffect(() => {
-    // Only poll once the board has loaded successfully. Stop on notFound or
-    // load error so a broken board doesn't burn requests forever.
-    // Deps are [boardId, loadClaims] only — loading/notFound/boardError/board
-    // are read inside the body, not as deps, so claim fetches that update
-    // board/claims don't restart the interval.
-    if (!boardId || loading || notFound || boardError || !board) {
-      if (intervalRef.current !== null) {
-        window.clearInterval(intervalRef.current)
-        intervalRef.current = null
-      }
-      return
-    }
+  const ready = !loading && !notFound && !boardError && !!board
 
+  useEffect(() => {
+    // Poll claims while the board is loaded. Pause when the tab is hidden and
+    // reload immediately when it becomes visible again. Always clear the
+    // interval on cleanup so no timer outlives the component.
     let stopped = false
+    let interval: number | null = null
+
     const tick = () => {
       if (stopped) return
       loadClaims()
     }
 
     const start = () => {
-      intervalRef.current = window.setInterval(tick, POLL_INTERVAL_MS)
+      interval = window.setInterval(tick, POLL_INTERVAL_MS)
     }
     const stop = () => {
-      if (intervalRef.current !== null) {
-        window.clearInterval(intervalRef.current)
-        intervalRef.current = null
+      if (interval !== null) {
+        window.clearInterval(interval)
+        interval = null
       }
     }
 
     const onVisibilityChange = () => {
       if (document.hidden) stop()
-      else start()
+      else {
+        start()
+        tick()
+      }
     }
 
-    start()
-    document.addEventListener('visibilitychange', onVisibilityChange)
+    if (ready && boardId) {
+      start()
+      document.addEventListener('visibilitychange', onVisibilityChange)
+      if (!document.hidden) tick()
+    } else {
+      stop()
+    }
 
     return () => {
       stopped = true
       stop()
       document.removeEventListener('visibilitychange', onVisibilityChange)
     }
-  }, [boardId, loadClaims])
+  }, [boardId, loadClaims, ready])
 
   async function handleAddClaim(e: React.FormEvent) {
     e.preventDefault()
@@ -371,12 +398,7 @@ export default function BoardPage() {
 
   const isOwner = board.ownerId === userId
   const canManageMembers = isOwner
-  const childClaims = claims.filter(
-    (c) => c.parentId !== null && c.parentId !== undefined,
-  )
-  const rootClaims = claims.filter(
-    (c) => c.parentId === null || c.parentId === undefined,
-  )
+  const tree = buildClaimTree(claims)
 
   return (
     <div className="flex min-h-full flex-col bg-background">
@@ -417,26 +439,13 @@ export default function BoardPage() {
               />
             ) : (
               <div className="space-y-0">
-                {rootClaims.map((c) => (
-                  <div key={c.id}>
-                    <ClaimRowItem
-                      claim={c}
-                      depth={0}
-                      onReply={(parentId) => setReplyTo(parentId)}
-                      userId={userId}
-                    />
-                    {childClaims
-                      .filter((cc) => cc.parentId === c.id)
-                      .map((cc) => (
-                        <ClaimRowItem
-                          key={cc.id}
-                          claim={cc}
-                          depth={1}
-                          onReply={(parentId) => setReplyTo(parentId)}
-                          userId={userId}
-                        />
-                      ))}
-                  </div>
+                {tree.map((node) => (
+                  <ClaimRowNode
+                    key={node.claim.id}
+                    node={node}
+                    depth={0}
+                    onReply={(parentId) => setReplyTo(parentId)}
+                  />
                 ))}
               </div>
             )}
